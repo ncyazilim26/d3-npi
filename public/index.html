@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D3 Men's Soccer NPI</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1b1f24; --mute:#667085; --line:#e4e7ec; --accent:#0b5cad; --up:#087443; --down:#b42318; --hypo:#fff6d6; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:#0b2a4a; color:#fff; padding:14px 20px; display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  header h1 { font-size:18px; margin:0 12px 0 0; }
+  header .status { color:#c9d6e6; font-size:12.5px; }
+  button { font:inherit; border:1px solid var(--line); background:#fff; color:var(--ink); padding:6px 12px; border-radius:6px; cursor:pointer; }
+  button:hover { background:#f0f4f9; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); font-weight:600; }
+  button.primary:hover { background:#094a8c; }
+  button:disabled { opacity:.55; cursor:default; }
+  main { display:grid; grid-template-columns: minmax(380px, 1fr) minmax(420px, 1fr); gap:16px; padding:16px 20px; align-items:start; }
+  @media (max-width: 950px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:15px; margin:0 0 10px; }
+  .notice { margin:0 20px; padding:8px 12px; border-radius:8px; font-size:13px; }
+  .notice.warn { background:#fff4e5; border:1px solid #f5c26b; margin-top:12px; }
+  .notice.err { background:#fdecea; border:1px solid #f1a9a0; margin-top:12px; }
+  .notice.ok { background:#e8f6ee; border:1px solid #9bd5b4; margin-top:12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:5px 8px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { font-size:12px; color:var(--mute); font-weight:600; position:sticky; top:0; background:#fff; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .scroll { max-height:70vh; overflow:auto; }
+  tr.row { cursor:pointer; }
+  tr.row:hover { background:#f3f7fc; }
+  tr.sel { background:#e6f0fb; }
+  tr.hypo { background:var(--hypo); }
+  .up { color:var(--up); } .down { color:var(--down); }
+  input[type=search] { width:100%; padding:7px 10px; border:1px solid var(--line); border-radius:6px; font:inherit; margin-bottom:8px; }
+  input.sc { width:44px; padding:4px; text-align:center; border:1px solid #c5ccd6; border-radius:5px; font:inherit; }
+  .big { display:flex; gap:22px; flex-wrap:wrap; margin:6px 0 12px; }
+  .big div span { display:block; font-size:11.5px; color:var(--mute); text-transform:uppercase; letter-spacing:.03em; }
+  .big div b { font-size:22px; font-variant-numeric:tabular-nums; }
+  .mini button { padding:2px 7px; font-size:12px; margin-left:3px; }
+  .pill { display:inline-block; padding:0 7px; border-radius:10px; font-size:12px; font-weight:600; }
+  .W { background:#e3f4ea; color:var(--up); } .L { background:#fdecea; color:var(--down); } .T { background:#eef0f3; color:#475467; }
+  small, .mute { color:var(--mute); }
+  details { margin-top:8px; font-size:13px; }
+  .tabs { margin-bottom:10px; } .tab { border-radius:6px 6px 0 0; } .tab.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .bid { display:inline-block; min-width:44px; text-align:center; padding:0 6px; border-radius:10px; font-size:12px; font-weight:600; }
+  .bid.AQ { background:#e6efff; color:#0b4a9c; } .bid.At-Lg, .bid.AtLg { background:#e3f4ea; color:var(--up); }
+  tr.cut td { border-bottom:2px solid #1b1f24; }
+  .daydiv { background:#eef2f7; font-weight:600; font-size:12.5px; padding:4px 8px; position:sticky; top:0; }
+  td.team { text-align:right; } td.team2 { text-align:left; }
+</style>
+</head>
+<body>
+<header>
+  <h1>D3 Men's Soccer NPI</h1>
+  <button class="primary" id="btnGet">Go get results</button>
+  <button id="btnClear">Clear all projections</button>
+  <span class="status" id="status"></span>
+</header>
+<div id="notices"></div>
+<main>
+  <section class="card">
+    <h2>League NPI <small id="leagueNote"></small></h2>
+    <div class="mute" id="bidNote" style="margin-bottom:6px"></div>
+    <input type="search" id="filter" placeholder="Search a team or conference…">
+    <div class="scroll"><table id="league"></table></div>
+  </section>
+  <section class="card" id="rightCard">
+    <div class="tabs"><button id="tabTeam" class="tab on">Team view</button><button id="tabAll" class="tab">All upcoming games</button></div>
+    <div id="teamCard"><h2>Pick a team</h2></div>
+    <div id="allCard" style="display:none">
+      <input type="search" id="allFilter" placeholder="Filter by team or conference…">
+      <div class="mute" style="margin-bottom:6px">Type a score in each box (home team on the left). Both boxes must be filled in. ✕ removes a projection.</div>
+      <div class="scroll" id="allList"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+let league = null;
+let selected = localStorage.getItem("npiTeam") || "TCNJ";
+let view = "team";
+let upcoming = [];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const f3 = (n) => (n === null || n === undefined ? "–" : n.toFixed(3));
+const arrow = (d) => (d === 0 || d === null ? "" : d > 0 ? `<span class="up">▲${d}</span>` : `<span class="down">▼${-d}</span>`);
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || "Request failed");
+  return j;
+}
+
+async function loadLeague() {
+  league = await api("/api/league");
+  const when = league.updatedAt ? new Date(league.updatedAt).toLocaleString() : "never";
+  $("status").textContent = `Results last pulled: ${when} · ${league.matchedGames} games counted · ${league.hypotheticalGames} projected`;
+  renderNotices();
+  renderLeague();
+  await loadTeam();
+  await loadAll();
+}
+
+function renderNotices() {
+  const n = [];
+  if (!league.updatedAt) n.push(`<div class="notice warn">No games loaded yet. Click <b>Go get results</b> to download the schedule and scores from the NCAA feed (the first time takes about a minute).</div>`);
+  if (league.updatedAt && !league.converged) n.push(`<div class="notice err">The NPI calculation did not fully settle. Treat these numbers with caution.</div>`);
+  if (league.vsOfficial && league.matchedGames > 0) {
+    const v = league.vsOfficial;
+    const good = v.meanAbsDiff < 0.05;
+    n.push(`<div class="notice ${good ? "ok" : "warn"}">Check against the NCAA's list (<code>data/official-npi.tsv</code>), using actual results only: average difference <b>${v.meanAbsDiff.toFixed(3)}</b> NPI points across ${v.teams} teams, largest <b>${v.maxAbsDiff.toFixed(3)}</b>.
+      ${good ? "" : "Differences this size usually mean the NPI list is older or newer than the downloaded scores, or some games are missing."}
+      <details><summary>Biggest differences</summary>${v.worst.map((w) => `${esc(w.team)}: ours ${w.ours.toFixed(3)} vs NCAA ${w.official.toFixed(3)}`).join("<br>")}</details></div>`);
+  }
+  if (league.unmatched.length)
+    n.push(`<div class="notice warn"><details><summary>${league.unmatched.length} team name(s) from the feed are not in the NPI list. Games against them are left out (normal for non-Division III opponents).</summary>${league.unmatched.slice(0, 40).map((u) => `${esc(u.name)} (${u.games})`).join(", ")}<br><small>If one of these is really a D3 team under a different spelling, add it to <code>data/aliases.json</code> as { "feed name": "NPI list name" }.</small></details></div>`);
+  $("notices").innerHTML = n.join("");
+}
+
+function renderLeague() {
+  const q = $("filter").value.trim().toLowerCase();
+  const rows = league.rows.filter((r) => !q || r.team.toLowerCase().includes(q) || r.conference.toLowerCase().includes(q));
+  $("leagueNote").textContent = league.hypotheticalGames ? "(with your projections)" : "(actual results)";
+  $("bidNote").textContent = `Projected field of ${league.bids.fieldSize}: ${league.bids.aqCount} AQ (best NPI in each conference) + ${league.bids.atLargeSpots} at-large. The heavy line marks the last at-large spot.`;
+  $("league").innerHTML = `<tr><th class="num">#</th><th>Team</th><th>Conf</th><th class="num">NPI</th><th class="num">vs actual</th><th class="num">NCAA</th><th>Bid</th><th class="num">At-Lg #</th></tr>` +
+    rows.map((r) => {
+      const dRank = r.rank !== null && r.baseRank !== null ? r.baseRank - r.rank : 0;
+      const cut = r.bid === "At-Lg" && r.atLgRank === league.bids.atLargeSpots ? " cut" : "";
+      const chg = r.bidChange === "in" ? ` <span class="up" title="Now in the field because of your projections">▲in</span>` : r.bidChange === "out" ? ` <span class="down" title="Now out of the field because of your projections">▼out</span>` : "";
+      return `<tr class="row ${r.team === selected ? "sel" : ""}${cut}" data-team="${esc(r.team)}"><td class="num">${r.rank ?? ""}</td><td>${esc(r.team)}</td><td><small>${esc(r.conference)}</small></td><td class="num">${f3(r.npi)}</td><td class="num">${league.hypotheticalGames ? arrow(dRank) : ""}</td><td class="num"><small>${f3(r.officialNpi)}</small></td><td>${r.bid ? `<span class="bid ${r.bid.replace("-", "")}">${r.bid}</span>` : ""}${chg}</td><td class="num">${r.atLgRank ?? ""}</td></tr>`;
+    }).join("");
+  document.querySelectorAll("#league tr.row").forEach((tr) => tr.addEventListener("click", () => { selected = tr.dataset.team; localStorage.setItem("npiTeam", selected); renderLeague(); loadTeam(); }));
+}
+
+async function loadTeam() {
+  if (!selected) return;
+  const t = await api("/api/team?name=" + encodeURIComponent(selected));
+  const r = t.row;
+  if (!r) { $("teamCard").innerHTML = `<h2>${esc(selected)}</h2><p class="mute">Team not found in the NPI list.</p>`; return; }
+  const dN = r.npi !== null && r.baseNpi !== null ? r.npi - r.baseNpi : 0;
+  const dR = r.rank !== null && r.baseRank !== null ? r.baseRank - r.rank : 0;
+  const upcoming = t.games.filter((g) => g.state !== "final");
+  const played = t.games.filter((g) => g.state === "final");
+  const gameRow = (g, editable) => {
+    const side = g.homeAway === "home" ? "vs" : "at";
+    const opp = `${side} ${esc(g.opponent)}${g.opponentNpi !== null ? ` <small>(${g.opponentNpi.toFixed(2)})</small>` : ""}${g.countsForNpi ? "" : ` <small>(not D3 / not counted)</small>`}`;
+    if (!editable) return `<tr><td><small>${esc(g.date.slice(5))}</small></td><td>${opp}</td><td><span class="pill ${g.result}">${g.result}</span> ${esc(g.score)}</td><td></td></tr>`;
+    const mine = g.scenario ? (g.homeAway === "home" ? g.scenario[0] : g.scenario[1]) : "";
+    const theirs = g.scenario ? (g.homeAway === "home" ? g.scenario[1] : g.scenario[0]) : "";
+    const inputs = g.countsForNpi
+      ? `<input class="sc" inputmode="numeric" data-id="${g.id}" data-ha="${g.homeAway}" data-k="me" value="${mine}"> – <input class="sc" inputmode="numeric" data-id="${g.id}" data-ha="${g.homeAway}" data-k="opp" value="${theirs}">
+         <span class="mini"><button data-q="W" data-id="${g.id}" data-ha="${g.homeAway}">W</button><button data-q="T" data-id="${g.id}" data-ha="${g.homeAway}">T</button><button data-q="L" data-id="${g.id}" data-ha="${g.homeAway}">L</button><button data-q="X" data-id="${g.id}" data-ha="${g.homeAway}">✕</button></span>`
+      : "";
+    return `<tr class="${g.hypothetical ? "hypo" : ""}"><td><small>${esc(g.date.slice(5))}<br>${esc(g.time)}</small></td><td>${opp}</td><td colspan="2">${inputs}</td></tr>`;
+  };
+  $("teamCard").innerHTML = `
+    <h2>${esc(r.team)} <small>${esc(r.conference)} · ${esc(r.region)}</small></h2>
+    <div class="big">
+      <div><span>${league.hypotheticalGames ? "Projected NPI" : "NPI"}</span><b>${f3(r.npi)}</b> ${dN ? `<small class="${dN > 0 ? "up" : "down"}">${dN > 0 ? "+" : ""}${dN.toFixed(3)}</small>` : ""}</div>
+      <div><span>Rank</span><b>${r.rank ?? "–"}</b> ${arrow(dR)}</div>
+      <div><span>Bid (projected)</span><b>${r.bid || "Out"}</b> ${r.atLgRank ? `<small>at-large #${r.atLgRank}</small>` : ""}</div>
+      <div><span>Actual NPI</span><b>${f3(r.baseNpi)}</b></div>
+      <div><span>NCAA list</span><b>${f3(r.officialNpi)}</b></div>
+      <div><span>Record</span><b>${esc(r.record)}</b> <small>adj ${esc(r.adjusted)}</small></div>
+    </div>
+    ${upcoming.length ? `<h2>Upcoming games <small>(type the score you assume: ${esc(r.team)} first)</small></h2><table>${upcoming.map((g) => gameRow(g, true)).join("")}</table>` : `<p class="mute">No upcoming games loaded${league.updatedAt ? "" : " yet. Click “Go get results”"}.</p>`}
+    ${played.length ? `<h2 style="margin-top:14px">Played</h2><table>${played.map((g) => gameRow(g, false)).join("")}</table>` : ""}`;
+  $("teamCard").querySelectorAll("input.sc").forEach((el) => el.addEventListener("change", () => saveFromInputs(el.dataset.id, el.dataset.ha)));
+  $("teamCard").querySelectorAll(".mini button").forEach((b) => b.addEventListener("click", () => quick(b.dataset.id, b.dataset.ha, b.dataset.q)));
+}
+
+async function post(id, ha, mine, theirs) {
+  const clear = mine === null || theirs === null;
+  await api("/api/scenario", { id, home: clear ? null : ha === "home" ? mine : theirs, away: clear ? null : ha === "home" ? theirs : mine });
+  await loadLeague();
+}
+async function saveFromInputs(id, ha) {
+  const me = document.querySelector(`input.sc[data-id="${id}"][data-k="me"]`).value.trim();
+  const opp = document.querySelector(`input.sc[data-id="${id}"][data-k="opp"]`).value.trim();
+  if (me === "" && opp === "") return post(id, ha, null, null);
+  if (me === "" || opp === "") return; // wait until both are filled in
+  try { await post(id, ha, Number(me), Number(opp)); } catch (e) { alert(e.message); }
+}
+function quick(id, ha, k) { const m = { W: [1, 0], T: [0, 0], L: [0, 1], X: [null, null] }[k]; return post(id, ha, m[0], m[1]); }
+
+function setView(v) {
+  view = v;
+  $("teamCard").style.display = v === "team" ? "" : "none";
+  $("allCard").style.display = v === "all" ? "" : "none";
+  $("tabTeam").classList.toggle("on", v === "team");
+  $("tabAll").classList.toggle("on", v === "all");
+}
+async function loadAll() {
+  upcoming = await api("/api/upcoming");
+  renderAll();
+}
+function renderAll() {
+  const box = $("allList");
+  const keep = box.scrollTop;
+  const q = $("allFilter").value.trim().toLowerCase();
+  const conf = new Map((league?.rows ?? []).map((r) => [r.team, r.conference.toLowerCase()]));
+  const rows = upcoming.filter((g) => !q || g.home.toLowerCase().includes(q) || g.away.toLowerCase().includes(q) || (conf.get(g.home) || "").includes(q) || (conf.get(g.away) || "").includes(q));
+  if (!rows.length) { box.innerHTML = `<p class="mute">${upcoming.length ? "No games match." : league && league.updatedAt ? "No upcoming games found." : "Click “Go get results” first."}</p>`; return; }
+  let html = "<table>", day = "";
+  for (const g of rows) {
+    if (g.date !== day) { day = g.date; html += `<tr><td colspan="5" class="daydiv">${esc(new Date(day + "T12:00:00").toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }))}</td></tr>`; }
+    const hs = g.scenario ? g.scenario[0] : "", as = g.scenario ? g.scenario[1] : "";
+    html += `<tr class="${g.scenario ? "hypo" : ""}">
+      <td class="team">${esc(g.home)} ${g.homeNpi !== null ? `<small>(${g.homeNpi.toFixed(1)})</small>` : ""}</td>
+      <td><input class="sc all" inputmode="numeric" data-id="${g.id}" data-s="h" value="${hs}"></td>
+      <td><input class="sc all" inputmode="numeric" data-id="${g.id}" data-s="a" value="${as}"></td>
+      <td class="team2">${esc(g.away)} ${g.awayNpi !== null ? `<small>(${g.awayNpi.toFixed(1)})</small>` : ""}</td>
+      <td><button class="xbtn" data-id="${g.id}" title="Remove projection">✕</button> <small class="mute">${esc(g.time)}</small></td></tr>`;
+  }
+  box.innerHTML = html + "</table>";
+  box.scrollTop = keep;
+  box.querySelectorAll("input.all").forEach((el) => el.addEventListener("change", () => saveAll(el.dataset.id)));
+  box.querySelectorAll(".xbtn").forEach((b) => b.addEventListener("click", async () => { await api("/api/scenario", { id: b.dataset.id, home: null, away: null }); await loadLeague(); }));
+}
+async function saveAll(id) {
+  const h = document.querySelector(`input.all[data-id="${id}"][data-s="h"]`).value.trim();
+  const a = document.querySelector(`input.all[data-id="${id}"][data-s="a"]`).value.trim();
+  if (h === "" || a === "") return; // wait until both boxes are filled
+  try { await api("/api/scenario", { id, home: Number(h), away: Number(a) }); await loadLeague(); } catch (e) { alert(e.message); }
+}
+$("tabTeam").addEventListener("click", () => setView("team"));
+$("tabAll").addEventListener("click", () => setView("all"));
+$("allFilter").addEventListener("input", () => renderAll());
+
+$("btnGet").addEventListener("click", async () => {
+  const b = $("btnGet"); b.disabled = true; const old = b.textContent; b.textContent = "Getting results…";
+  try {
+    const s = await api("/api/refresh", {});
+    await loadLeague();
+    if (s.errors.length) alert(`Finished with ${s.errors.length} problem(s). Some days could not be loaded:\n\n` + s.errors.slice(0, 5).join("\n"));
+  } catch (e) { alert("Could not get results: " + e.message); }
+  b.disabled = false; b.textContent = old;
+});
+$("btnClear").addEventListener("click", async () => { if (confirm("Remove all of your projected scores?")) { await api("/api/scenario/clear", {}); loadLeague(); } });
+$("filter").addEventListener("input", () => league && renderLeague());
+loadLeague().catch((e) => ($("notices").innerHTML = `<div class="notice err">${esc(e.message)}</div>`));
+</script>
+</body>
+</html>
