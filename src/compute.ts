@@ -30,6 +30,7 @@ export interface LeagueResult {
   vsOfficial: { teams: number; meanAbsDiff: number; maxAbsDiff: number; worst: { team: string; ours: number; official: number }[] } | null;
   updatedAt: string | null;
   bids: { fieldSize: number; aqCount: number; atLargeSpots: number };
+  computeMs: number;
 }
 
 /**
@@ -84,14 +85,29 @@ export function buildGames() {
   return { db, official, actual, hypo, unmatched, scenario };
 }
 
+// Cached results. The calculation is heavy, so it is redone only when the downloaded games or the
+// projections actually change. The projected run starts from the actual-results answer, which is close.
+let baseCache: { key: string; base: TeamNpi[]; converged: boolean } | null = null;
+let leagueCache: { key: string; result: LeagueResult } | null = null;
+
 export function computeLeague(): LeagueResult {
   const { db, official, actual, hypo, unmatched } = buildGames();
+  const baseKey = `${db.updatedAt}|${db.games.length}|${actual.length}|${actual.reduce((a, g) => a + g.homeScore * 31 + g.awayScore, 0)}`;
+  const scenKey = baseKey + "|" + hypo.map((g) => `${g.id}:${g.homeScore}-${g.awayScore}`).sort().join(",");
+  if (leagueCache && leagueCache.key === scenKey) return leagueCache.result;
+  const started = Date.now();
+
   const initial = new Map<string, number>();
   for (const t of official.teams) if (t.npi !== null) initial.set(t.name, t.npi);
 
-  const base = computeNpi(actual, D3_MSOC_CONFIG, { includeHypothetical: false, initial });
-  const baseConverged = lastConverged;
-  const scen = hypo.length ? computeNpi([...actual, ...hypo], D3_MSOC_CONFIG, { includeHypothetical: true, initial }) : base;
+  if (!baseCache || baseCache.key !== baseKey) {
+    const b = computeNpi(actual, D3_MSOC_CONFIG, { includeHypothetical: false, initial });
+    baseCache = { key: baseKey, base: b, converged: lastConverged };
+  }
+  const base = baseCache.base;
+  const baseConverged = baseCache.converged;
+  const warm = new Map(base.map((r) => [r.team, r.npi]));
+  const scen = hypo.length ? computeNpi([...actual, ...hypo], D3_MSOC_CONFIG, { includeHypothetical: true, initial: warm }) : base;
   const converged = baseConverged && (hypo.length ? lastConverged : true);
 
   const baseBy = new Map<string, TeamNpi>(base.map((r) => [r.team, r]));
@@ -146,7 +162,7 @@ export function computeLeague(): LeagueResult {
       }
     : null;
 
-  return {
+  const result: LeagueResult = {
     rows,
     converged,
     matchedGames: actual.length,
@@ -155,7 +171,10 @@ export function computeLeague(): LeagueResult {
     vsOfficial,
     updatedAt: db.updatedAt,
     bids: { fieldSize: bidsNow.fieldSize, aqCount: bidsNow.aqCount, atLargeSpots: bidsNow.atLargeSpots },
+    computeMs: Date.now() - started,
   };
+  leagueCache = { key: scenKey, result };
+  return result;
 }
 
 export interface TeamGameRow {
