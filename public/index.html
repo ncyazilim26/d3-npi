@@ -50,6 +50,14 @@
   tr.cut td { border-bottom:2px solid #1b1f24; }
   .daydiv { background:#eef2f7; font-weight:600; font-size:12.5px; padding:4px 8px; position:sticky; top:0; }
   td.team { text-align:right; } td.team2 { text-align:left; }
+  #result .notice { display:flex; gap:10px; align-items:flex-start; justify-content:space-between; line-height:1.5; }
+  #result .notice .body { flex:1; }
+  #result .notice .x { padding:0 8px; border:none; background:transparent; font-size:16px; }
+  #result .line { margin-top:3px; }
+  .spin { display:inline-block; width:13px; height:13px; border:2px solid #c9a24a; border-top-color:transparent; border-radius:50%; vertical-align:-2px; margin-right:6px; animation:sp .8s linear infinite; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  body.busy input.sc, body.busy .mini button, body.busy .xbtn { pointer-events:none; opacity:.55; }
+  body.busy #league, body.busy #teamCard .big { opacity:.6; }
 </style>
 </head>
 <body>
@@ -60,6 +68,7 @@
   <span class="status" id="status"></span>
 </header>
 <div id="notices"></div>
+<div id="result"></div>
 <main>
   <section class="card">
     <h2>League NPI <small id="leagueNote"></small></h2>
@@ -72,7 +81,7 @@
     <div id="teamCard"><h2>Pick a team</h2></div>
     <div id="allCard" style="display:none">
       <input type="search" id="allFilter" placeholder="Filter by team or conference…">
-      <div class="mute" style="margin-bottom:6px">Type a score in each box (home team on the left). Both boxes must be filled in. ✕ removes a projection.</div>
+      <div class="mute" style="margin-bottom:6px">Type a score in each box (home team on the left). It calculates by itself a moment after both boxes are filled. ✕ removes a projection.</div>
       <div class="scroll" id="allList"></div>
     </div>
   </section>
@@ -101,8 +110,7 @@ async function loadLeague() {
   $("status").textContent = `Results last pulled: ${when} · ${league.matchedGames} games counted · ${league.hypotheticalGames} projected`;
   renderNotices();
   renderLeague();
-  await loadTeam();
-  await loadAll();
+  await Promise.all([loadTeam(), loadAll()]);
 }
 
 function renderNotices() {
@@ -169,21 +177,83 @@ async function loadTeam() {
     </div>
     ${upcoming.length ? `<h2>Upcoming games <small>(type the score you assume: ${esc(r.team)} first)</small></h2><table>${upcoming.map((g) => gameRow(g, true)).join("")}</table>` : `<p class="mute">No upcoming games loaded${league.updatedAt ? "" : " yet. Click “Go get results”"}.</p>`}
     ${played.length ? `<h2 style="margin-top:14px">Played</h2><table>${played.map((g) => gameRow(g, false)).join("")}</table>` : ""}`;
-  $("teamCard").querySelectorAll("input.sc").forEach((el) => el.addEventListener("change", () => saveFromInputs(el.dataset.id, el.dataset.ha)));
+  $("teamCard").querySelectorAll("input.sc").forEach((el) => {
+    el.addEventListener("change", () => { clearTimeout(timers[el.dataset.id]); saveFromInputs(el.dataset.id, el.dataset.ha); });
+    el.addEventListener("input", () => schedule(el.dataset.id, () => saveFromInputs(el.dataset.id, el.dataset.ha)));
+  });
   $("teamCard").querySelectorAll(".mini button").forEach((b) => b.addEventListener("click", () => quick(b.dataset.id, b.dataset.ha, b.dataset.q)));
 }
 
-async function post(id, ha, mine, theirs) {
-  const clear = mine === null || theirs === null;
-  await api("/api/scenario", { id, home: clear ? null : ha === "home" ? mine : theirs, away: clear ? null : ha === "home" ? theirs : mine });
-  await loadLeague();
+// ---- Projections: every change runs through one queue, shows progress, and reports what moved. ----
+let chain = Promise.resolve();
+let busyCount = 0;
+const timers = {};
+const showResult = (html, kind) => { $("result").innerHTML = `<div class="notice ${kind}"><div class="body">${html}</div><button class="x" title="Dismiss" onclick="document.getElementById('result').innerHTML=''">✕</button></div>`; };
+const sign = (n, d = 3) => (n > 0 ? "+" : "") + n.toFixed(d);
+const bidTxt = (r) => (r.bid === "AQ" ? "AQ" : r.bid === "At-Lg" ? `At-Lg #${r.atLgRank}` : "Out");
+
+function summarize(before, after, game, home, away, removed, ms) {
+  const b = new Map(before.rows.map((r) => [r.team, r]));
+  const key = [...new Set([game && game.home, game && game.away, selected].filter(Boolean))];
+  const lines = [];
+  for (const n of key) {
+    const o = b.get(n), r = after.rows.find((x) => x.team === n);
+    if (!o || !r || o.npi === null || r.npi === null) continue;
+    const d = r.npi - o.npi;
+    const moved = Math.abs(d) >= 0.0005 || o.rank !== r.rank || o.bid !== r.bid || o.atLgRank !== r.atLgRank;
+    lines.push(`<div class="line"><b>${esc(n)}</b>: NPI ${f3(o.npi)} → ${f3(r.npi)} <span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">(${sign(d)})</span> · rank ${o.rank} → ${r.rank} ${arrow(o.rank - r.rank)} · ${esc(bidTxt(o))} → ${esc(bidTxt(r))}${moved ? "" : " <small>(no change)</small>"}</div>`);
+  }
+  let others = 0, ins = [], outs = [];
+  for (const r of after.rows) {
+    const o = b.get(r.team); if (!o) continue;
+    if (!key.includes(r.team) && o.rank !== r.rank) others++;
+    if (o.bid === "" && r.bid !== "") ins.push(r.team);
+    if (o.bid !== "" && r.bid === "") outs.push(r.team);
+  }
+  const head = removed ? "Projection removed." : game ? `Projection saved: ${esc(game.home)} ${home}–${away} ${esc(game.away)}.` : "Projection saved.";
+  let extra = `<div class="line">${others} other team${others === 1 ? "" : "s"} changed rank.</div>`;
+  if (ins.length) extra += `<div class="line up">Now in the 64-team field: ${ins.slice(0, 6).map(esc).join(", ")}</div>`;
+  if (outs.length) extra += `<div class="line down">Now out of the field: ${outs.slice(0, 6).map(esc).join(", ")}</div>`;
+  const nothing = !lines.some((l) => !l.includes("(no change)")) && others === 0 && !ins.length && !outs.length;
+  if (nothing) extra = `<div class="line">No team's NPI rank or bid changed.</div>`;
+  return `<b>${head}</b> Rankings recalculated in ${(ms / 1000).toFixed(1)}s.${lines.join("")}${extra}`;
 }
-async function saveFromInputs(id, ha) {
+
+function applyChange(id, home, away) {
+  // Queue it so quick successive edits never overlap.
+  chain = chain.then(async () => {
+    const before = league, game = upcoming.find((u) => u.id === id), t0 = Date.now();
+    // Ignore a repeat of what is already saved (the page redraws its boxes after each calculation).
+    const cur = game && game.scenario;
+    if (game && ((home === null && !cur) || (cur && cur[0] === home && cur[1] === away))) return;
+    busyCount++; document.body.classList.add("busy");
+    showResult(`<span class="spin"></span><b>Calculating new rankings…</b> this can take several seconds. Please wait.`, "warn");
+    try {
+      await api("/api/scenario", { id, home, away });
+      await loadLeague();
+      showResult(summarize(before, league, game, home, away, home === null, Date.now() - t0), "ok");
+    } catch (e) {
+      showResult("Could not calculate: " + esc(e.message), "err");
+    } finally {
+      busyCount--; if (!busyCount) document.body.classList.remove("busy");
+    }
+  });
+  return chain;
+}
+// Calculates by itself shortly after both score boxes are filled in (no need to leave the box).
+function schedule(id, fn) { clearTimeout(timers[id]); timers[id] = setTimeout(fn, 900); }
+
+function post(id, ha, mine, theirs) {
+  const clear = mine === null || theirs === null;
+  return applyChange(id, clear ? null : ha === "home" ? mine : theirs, clear ? null : ha === "home" ? theirs : mine);
+}
+function saveFromInputs(id, ha) {
   const me = document.querySelector(`input.sc[data-id="${id}"][data-k="me"]`).value.trim();
   const opp = document.querySelector(`input.sc[data-id="${id}"][data-k="opp"]`).value.trim();
   if (me === "" && opp === "") return post(id, ha, null, null);
   if (me === "" || opp === "") return; // wait until both are filled in
-  try { await post(id, ha, Number(me), Number(opp)); } catch (e) { alert(e.message); }
+  if (!/^\d{1,2}$/.test(me) || !/^\d{1,2}$/.test(opp)) { showResult("Scores must be whole numbers from 0 to 99.", "err"); return; }
+  return post(id, ha, Number(me), Number(opp));
 }
 function quick(id, ha, k) { const m = { W: [1, 0], T: [0, 0], L: [0, 1], X: [null, null] }[k]; return post(id, ha, m[0], m[1]); }
 
@@ -218,14 +288,18 @@ function renderAll() {
   }
   box.innerHTML = html + "</table>";
   box.scrollTop = keep;
-  box.querySelectorAll("input.all").forEach((el) => el.addEventListener("change", () => saveAll(el.dataset.id)));
-  box.querySelectorAll(".xbtn").forEach((b) => b.addEventListener("click", async () => { await api("/api/scenario", { id: b.dataset.id, home: null, away: null }); await loadLeague(); }));
+  box.querySelectorAll("input.all").forEach((el) => {
+    el.addEventListener("change", () => { clearTimeout(timers[el.dataset.id]); saveAll(el.dataset.id); });
+    el.addEventListener("input", () => schedule(el.dataset.id, () => saveAll(el.dataset.id)));
+  });
+  box.querySelectorAll(".xbtn").forEach((b) => b.addEventListener("click", () => applyChange(b.dataset.id, null, null)));
 }
-async function saveAll(id) {
+function saveAll(id) {
   const h = document.querySelector(`input.all[data-id="${id}"][data-s="h"]`).value.trim();
   const a = document.querySelector(`input.all[data-id="${id}"][data-s="a"]`).value.trim();
   if (h === "" || a === "") return; // wait until both boxes are filled
-  try { await api("/api/scenario", { id, home: Number(h), away: Number(a) }); await loadLeague(); } catch (e) { alert(e.message); }
+  if (!/^\d{1,2}$/.test(h) || !/^\d{1,2}$/.test(a)) { showResult("Scores must be whole numbers from 0 to 99.", "err"); return; }
+  return applyChange(id, Number(h), Number(a));
 }
 $("tabTeam").addEventListener("click", () => setView("team"));
 $("tabAll").addEventListener("click", () => setView("all"));
@@ -233,14 +307,24 @@ $("allFilter").addEventListener("input", () => renderAll());
 
 $("btnGet").addEventListener("click", async () => {
   const b = $("btnGet"); b.disabled = true; const old = b.textContent; b.textContent = "Getting results…";
+  showResult(`<span class="spin"></span><b>Getting results from the NCAA…</b> the first time takes a few minutes. Keep this page open.`, "warn");
   try {
     const s = await api("/api/refresh", {});
     await loadLeague();
-    if (s.errors.length) alert(`Finished with ${s.errors.length} problem(s). Some days could not be loaded:\n\n` + s.errors.slice(0, 5).join("\n"));
-  } catch (e) { alert("Could not get results: " + e.message); }
+    showResult(`<b>Results updated.</b> ${s.final} played games loaded (${s.games} games total)${s.projectionsCleared ? `; ${s.projectionsCleared} projection(s) replaced by real scores` : ""}.${s.errors.length ? `<div class="line down">${s.errors.length} day(s) could not be loaded: ${esc(s.errors[0])}</div>` : ""}`, s.errors.length ? "warn" : "ok");
+  } catch (e) { showResult("Could not get results: " + esc(e.message), "err"); }
   b.disabled = false; b.textContent = old;
 });
-$("btnClear").addEventListener("click", async () => { if (confirm("Remove all of your projected scores?")) { await api("/api/scenario/clear", {}); loadLeague(); } });
+$("btnClear").addEventListener("click", () => {
+  if (!confirm("Remove all of your projected scores?")) return;
+  chain = chain.then(async () => {
+    document.body.classList.add("busy");
+    showResult(`<span class="spin"></span><b>Removing projections and recalculating…</b>`, "warn");
+    try { await api("/api/scenario/clear", {}); await loadLeague(); showResult("<b>All projections removed.</b> Rankings now show actual results only.", "ok"); }
+    catch (e) { showResult("Could not clear: " + esc(e.message), "err"); }
+    document.body.classList.remove("busy");
+  });
+});
 $("filter").addEventListener("input", () => league && renderLeague());
 loadLeague().catch((e) => ($("notices").innerHTML = `<div class="notice err">${esc(e.message)}</div>`));
 </script>
