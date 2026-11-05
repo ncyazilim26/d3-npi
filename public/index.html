@@ -64,7 +64,7 @@
 <header>
   <h1>D3 Men's Soccer NPI</h1>
   <button class="primary" id="btnGet">Go get results</button>
-  <button id="btnClear">Clear all projections</button>
+  <button id="btnClear">Clear my projections</button>
   <span class="status" id="status"></span>
 </header>
 <div id="notices"></div>
@@ -97,8 +97,11 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const f3 = (n) => (n === null || n === undefined ? "–" : n.toFixed(3));
 const arrow = (d) => (d === 0 || d === null ? "" : d > 0 ? `<span class="up">▲${d}</span>` : `<span class="down">▼${-d}</span>`);
 
+// Every browser gets its own private set of projections, kept under a random id.
+let USER = "";
+try { USER = localStorage.getItem("npiUser") || ""; if (!USER) { USER = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem("npiUser", USER); } } catch (e) { USER = "guest"; }
 async function api(path, body) {
-  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await fetch(path, body === undefined ? { headers: { "x-user": USER } } : { method: "POST", headers: { "Content-Type": "application/json", "x-user": USER }, body: JSON.stringify(body) });
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || "Request failed");
   return j;
@@ -320,7 +323,7 @@ $("btnClear").addEventListener("click", () => {
   chain = chain.then(async () => {
     document.body.classList.add("busy");
     showResult(`<span class="spin"></span><b>Removing projections and recalculating…</b>`, "warn");
-    try { await api("/api/scenario/clear", {}); await loadLeague(); showResult("<b>All projections removed.</b> Rankings now show actual results only.", "ok"); }
+    try { await api("/api/scenario/clear", {}); await loadLeague(); showResult("<b>Your projections removed.</b> Rankings now show actual results only.", "ok"); }
     catch (e) { showResult("Could not clear: " + esc(e.message), "err"); }
     document.body.classList.remove("busy");
   });
