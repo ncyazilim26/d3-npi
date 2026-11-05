@@ -2,7 +2,7 @@ import { createServer, IncomingMessage, ServerResponse } from "http";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { computeLeague, teamDetail, upcomingGames } from "./compute";
-import { loadGames, saveGames, loadScenario, saveScenario } from "./store";
+import { loadGames, saveGames, loadScenario, saveScenario, setUser, pruneAllScenarios } from "./store";
 import { fetchDay, datesBetween, NCAA_BASE } from "./ncaa";
 
 const PORT = Number(process.env.PORT || 3000);
@@ -41,10 +41,7 @@ async function refresh(full: boolean) {
     const games = [...byId.values()];
     saveGames({ updatedAt: new Date().toISOString(), games, fetched: [...fetched].sort() });
     // A game that has now been played no longer needs its assumed score.
-    const scen = loadScenario();
-    let cleared = 0;
-    for (const g of games) if (g.state === "final" && scen[g.id]) { delete scen[g.id]; cleared++; }
-    if (cleared) saveScenario(scen);
+    const cleared = pruneAllScenarios(new Set(games.filter((g) => g.state === "final").map((g) => g.id)));
     return { daysChecked: dates.length, games: games.length, final: games.filter((g) => g.state === "final").length, errors, projectionsCleared: cleared, source: NCAA_BASE };
   } finally {
     refreshing = false;
@@ -65,6 +62,7 @@ const send = (res: ServerResponse, code: number, body: unknown, type = "applicat
 const server = createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   try {
+    setUser(req.headers["x-user"]);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html"))
       return send(res, 200, readFileSync(join(process.cwd(), "public", "index.html"), "utf8"), "text/html; charset=utf-8");
     if (req.method === "GET" && url.pathname === "/api/league") return send(res, 200, computeLeague());
