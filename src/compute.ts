@@ -52,7 +52,7 @@ export function computeBids(
     if (champ && norm(champ) === norm(t.team) && !cfg.noAutomaticBid.includes(t.conference)) { aqConf.add(t.conference); aq.add(t.team); }
   }
   for (const t of ranked) {
-    if (cfg.noAutomaticBid.includes(t.conference) || aqConf.has(t.conference)) continue;
+    if (cfg.noAutomaticBid.includes(t.conference) || aqConf.has(t.conference) || cfg.eliminated.some((e) => norm(e) === norm(t.team))) continue;
     aqConf.add(t.conference);
     aq.add(t.team);
   }

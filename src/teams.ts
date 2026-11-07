@@ -55,12 +55,12 @@ export function resolveName(
   return official.byNorm.get(n)?.name ?? null;
 }
 
-export interface BidConfig { fieldSize: number; noAutomaticBid: string[]; champions: Record<string, string> }
+export interface BidConfig { fieldSize: number; noAutomaticBid: string[]; champions: Record<string, string>; eliminated: string[] }
 /** Tournament size and which "conferences" have no automatic bid (data/bids.json). */
 export function loadBidConfig(): BidConfig {
   const f = join(DATA_DIR, "bids.json");
-  const def: BidConfig = { fieldSize: 64, noAutomaticBid: ["DIII Independent", "C2C"], champions: {} };
+  const def: BidConfig = { fieldSize: 64, noAutomaticBid: ["DIII Independent", "C2C"], champions: {}, eliminated: [] };
   if (!existsSync(f)) return def;
   const j = JSON.parse(readFileSync(f, "utf8"));
-  return { fieldSize: Number(j.fieldSize) || def.fieldSize, noAutomaticBid: Array.isArray(j.noAutomaticBid) ? j.noAutomaticBid : def.noAutomaticBid, champions: j.champions && typeof j.champions === "object" ? j.champions : {} };
+  return { fieldSize: Number(j.fieldSize) || def.fieldSize, noAutomaticBid: Array.isArray(j.noAutomaticBid) ? j.noAutomaticBid : def.noAutomaticBid, champions: j.champions && typeof j.champions === "object" ? j.champions : {}, eliminated: Array.isArray(j.eliminated) ? j.eliminated : [] };
 }
