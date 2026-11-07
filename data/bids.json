@@ -1,4 +1,11 @@
 {
   "fieldSize": 64,
-  "noAutomaticBid": ["DIII Independent", "C2C"]
+  "noAutomaticBid": [
+    "DIII Independent",
+    "C2C"
+  ],
+  "champions": {
+    "SUNYAC": "Plattsburgh St.",
+    "NJAC": "Rowan"
+  }
 }
