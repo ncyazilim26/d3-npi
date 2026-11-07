@@ -45,6 +45,12 @@ export function computeBids(
   const ranked = teams.filter((t) => t.rank !== null).sort((a, b) => (a.rank as number) - (b.rank as number));
   const aqConf = new Set<string>();
   const aq = new Set<string>();
+  // Decided champions (data/bids.json "champions": { conference: team }) take the bid before the best-NPI guess.
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  for (const t of ranked) {
+    const champ = cfg.champions[t.conference];
+    if (champ && norm(champ) === norm(t.team) && !cfg.noAutomaticBid.includes(t.conference)) { aqConf.add(t.conference); aq.add(t.team); }
+  }
   for (const t of ranked) {
     if (cfg.noAutomaticBid.includes(t.conference) || aqConf.has(t.conference)) continue;
     aqConf.add(t.conference);
