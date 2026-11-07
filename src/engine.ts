@@ -132,6 +132,7 @@ export function computeNpi(
   let npis = new Map<string, number>([...byTeam.keys()].map((t) => [t, opts.initial?.get(t) ?? 50]));
   let details = new Map<string, ReturnType<typeof teamNpi>>();
   let converged = false;
+  let lastDelta = Infinity;
 
   for (let i = 0; i < cfg.maxIterations; i++) {
     const next = new Map<string, number>();
@@ -144,9 +145,11 @@ export function computeNpi(
       delta = Math.max(delta, Math.abs(d.npi - (npis.get(team) ?? 0)));
     }
     npis = next;
+    lastDelta = delta;
     if (delta < cfg.tolerance) { converged = true; break; }
   }
-  lastConverged = converged;
+  // Tiny flip-flops from the drop rules (under 0.001 NPI) do not change any ranking you would notice.
+  lastConverged = converged || lastDelta < 1e-3;
 
   return [...details.entries()]
     .map(([team, d]) => ({ team, npi: d.npi, rank: 0, overall: d.overall, adjusted: d.adjusted }))

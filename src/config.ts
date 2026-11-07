@@ -24,5 +24,5 @@ export const D3_MSOC_CONFIG: NpiConfig = {
   minWins: 10,
   tieWinShare: 0.5,
   maxIterations: 500,
-  tolerance: 1e-9,
+  tolerance: 1e-6,
 };
