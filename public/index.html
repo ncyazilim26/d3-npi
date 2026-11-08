@@ -159,7 +159,16 @@ async function loadTeam() {
   const gameRow = (g, editable) => {
     const side = g.homeAway === "home" ? "vs" : "at";
     const opp = `${side} ${esc(g.opponent)}${g.opponentNpi !== null ? ` <small>(${g.opponentNpi.toFixed(2)})</small>` : ""}${g.countsForNpi ? "" : ` <small>(not D3 / not counted)</small>`}`;
-    if (!editable) return `<tr><td><small>${esc(g.date.slice(5))}</small></td><td>${opp}</td><td><span class="pill ${g.result}">${g.result}</span> ${esc(g.score)}</td><td></td></tr>`;
+    if (!editable) {
+      // A played game can be replayed with another score ("what if"). Stored under "x" + game id.
+      const ox = g.override ? (g.homeAway === "home" ? g.override[0] : g.override[1]) : "";
+      const oy = g.override ? (g.homeAway === "home" ? g.override[1] : g.override[0]) : "";
+      const xid = "x" + g.id;
+      const wi = g.countsForNpi
+        ? `<span class="wi">what if: <input class="sc" inputmode="numeric" data-id="${xid}" data-ha="${g.homeAway}" data-k="me" value="${ox}"> – <input class="sc" inputmode="numeric" data-id="${xid}" data-ha="${g.homeAway}" data-k="opp" value="${oy}"> <span class="mini"><button data-q="W" data-id="${xid}" data-ha="${g.homeAway}">W</button><button data-q="T" data-id="${xid}" data-ha="${g.homeAway}">T</button><button data-q="L" data-id="${xid}" data-ha="${g.homeAway}">L</button><button data-q="X" data-id="${xid}" data-ha="${g.homeAway}">✕</button></span></span>`
+        : "";
+      return `<tr class="${g.override ? "hypo" : ""}"><td><small>${esc(g.date.slice(5))}</small></td><td>${opp}</td><td><span class="pill ${g.result}">${g.result}</span> ${esc(g.score)} <small>(real)</small></td><td>${wi}</td></tr>`;
+    }
     const mine = g.scenario ? (g.homeAway === "home" ? g.scenario[0] : g.scenario[1]) : "";
     const theirs = g.scenario ? (g.homeAway === "home" ? g.scenario[1] : g.scenario[0]) : "";
     const inputs = g.countsForNpi
@@ -179,7 +188,7 @@ async function loadTeam() {
       <div><span>Record</span><b>${esc(r.record)}</b> <small>adj ${esc(r.adjusted)}</small></div>
     </div>
     ${upcoming.length ? `<h2>Upcoming games <small>(type the score you assume: ${esc(r.team)} first)</small></h2><table>${upcoming.map((g) => gameRow(g, true)).join("")}</table>` : `<p class="mute">No upcoming games loaded${league.updatedAt ? "" : " yet. Click “Go get results”"}.</p>`}
-    ${played.length ? `<h2 style="margin-top:14px">Played</h2><table>${played.map((g) => gameRow(g, false)).join("")}</table>` : ""}`;
+    ${played.length ? `<h2 style="margin-top:14px">Played <small>(type a different score under “what if” to see what could have happened; ${esc(r.team)} first)</small></h2><table>${played.map((g) => gameRow(g, false)).join("")}</table>` : ""}`;
   $("teamCard").querySelectorAll("input.sc").forEach((el) => {
     el.addEventListener("change", () => { clearTimeout(timers[el.dataset.id]); saveFromInputs(el.dataset.id, el.dataset.ha); });
     el.addEventListener("input", () => schedule(el.dataset.id, () => saveFromInputs(el.dataset.id, el.dataset.ha)));
