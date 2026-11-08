@@ -74,6 +74,8 @@ export function buildGames() {
   const unmatched = new Map<string, number>();
   const actual: Game[] = [];
   const hypo: Game[] = [];
+  const overridden = new Set<string>();
+  const overrides: { home: string; away: string; hs: number; as: number }[] = [];
   for (const g of db.games) {
     const h = resolveName(g.home, official);
     const a = resolveName(g.away, official);
@@ -84,11 +86,18 @@ export function buildGames() {
     }
     if (g.state === "final" && g.homeScore !== null && g.awayScore !== null) {
       actual.push({ id: g.id, home: h, away: a, homeScore: g.homeScore, awayScore: g.awayScore, kind: "actual", date: g.date });
+      // What-if: a played game replayed with a different score (stored under "x" + game id).
+      const ov = scenario["x" + g.id];
+      if (ov) {
+        hypo.push({ id: g.id, home: h, away: a, homeScore: ov[0], awayScore: ov[1], kind: "hypothetical", date: g.date });
+        overridden.add(g.id);
+        overrides.push({ home: h, away: a, hs: ov[0], as: ov[1] });
+      }
     } else if (scenario[g.id]) {
       hypo.push({ id: g.id, home: h, away: a, homeScore: scenario[g.id][0], awayScore: scenario[g.id][1], kind: "hypothetical", date: g.date });
     }
   }
-  return { db, official, actual, hypo, unmatched, scenario };
+  return { db, official, actual, hypo, unmatched, scenario, overridden, overrides };
 }
 
 // Cached results. The calculation is heavy, so it is redone only when the downloaded games or the
@@ -97,7 +106,7 @@ let baseCache: { key: string; base: TeamNpi[]; converged: boolean } | null = nul
 let leagueCache: { key: string; result: LeagueResult } | null = null;
 
 export function computeLeague(): LeagueResult {
-  const { db, official, actual, hypo, unmatched } = buildGames();
+  const { db, official, actual, hypo, unmatched, overridden, overrides } = buildGames();
   const baseKey = `${db.updatedAt}|${db.games.length}|${actual.length}|${actual.reduce((a, g) => a + g.homeScore * 31 + g.awayScore, 0)}`;
   const scenKey = baseKey + "|" + hypo.map((g) => `${g.id}:${g.homeScore}-${g.awayScore}`).sort().join(",");
   if (leagueCache && leagueCache.key === scenKey) return leagueCache.result;
@@ -113,7 +122,7 @@ export function computeLeague(): LeagueResult {
   const base = baseCache.base;
   const baseConverged = baseCache.converged;
   const warm = new Map(base.map((r) => [r.team, r.npi]));
-  const scen = hypo.length ? computeNpi([...actual, ...hypo], D3_MSOC_CONFIG, { includeHypothetical: true, initial: warm }) : base;
+  const scen = hypo.length ? computeNpi([...actual.filter((g) => !overridden.has(g.id)), ...hypo], D3_MSOC_CONFIG, { includeHypothetical: true, initial: warm }) : base;
   const converged = baseConverged && (hypo.length ? lastConverged : true);
 
   const baseBy = new Map<string, TeamNpi>(base.map((r) => [r.team, r]));
@@ -143,7 +152,17 @@ export function computeLeague(): LeagueResult {
     };
   });
   // Projected bids, with and without the user's assumed scores.
-  const bidsNow = computeBids(rows.map((r) => ({ team: r.team, conference: r.conference, rank: r.rank })));
+  // If a replayed game changes who won a conference final, move that conference's automatic bid to the winner.
+  const cfgNow = loadBidConfig();
+  const confOf = new Map(official.teams.map((t) => [t.name, t.conference]));
+  const champs = { ...cfgNow.champions };
+  for (const o of overrides) {
+    const c = confOf.get(o.home);
+    if (!c || c !== confOf.get(o.away) || o.hs === o.as) continue;
+    const win = o.hs > o.as ? o.home : o.away, lose = o.hs > o.as ? o.away : o.home;
+    if (champs[c] === lose) champs[c] = win;
+  }
+  const bidsNow = computeBids(rows.map((r) => ({ team: r.team, conference: r.conference, rank: r.rank })), { ...cfgNow, champions: champs });
   const bidsBase = computeBids(rows.map((r) => ({ team: r.team, conference: r.conference, rank: r.baseRank })));
   for (const r of rows) {
     const now = bidsNow.map.get(r.team), was = bidsBase.map.get(r.team);
@@ -195,6 +214,7 @@ export interface TeamGameRow {
   score: string;
   hypothetical: boolean;
   scenario: [number, number] | null;
+  override: [number, number] | null;
   countsForNpi: boolean;
 }
 
@@ -219,7 +239,7 @@ export function teamDetail(team: string) {
       opponent: opp, opponentNpi: npiBy.get(opp) ?? null, state: g.state,
       result: my === null || their === null ? null : my > their ? "W" : my < their ? "L" : "T",
       score: my === null || their === null ? "" : `${my}-${their}`,
-      hypothetical: !final && !!sc, scenario: sc, countsForNpi: !!(h && a),
+      hypothetical: !final && !!sc, scenario: sc, override: final ? scenario["x" + g.id] ?? null : null, countsForNpi: !!(h && a),
     });
   }
   games.sort((x, y) => x.date.localeCompare(y.date) || x.time.localeCompare(y.time));

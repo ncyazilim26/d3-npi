@@ -74,6 +74,7 @@ const server = createServer(async (req, res) => {
     }
     if (req.method === "POST" && url.pathname === "/api/scenario") {
       const { id, home, away } = await readBody(req);
+      if (typeof id !== "string" || !id || id.length > 80) return send(res, 400, { error: "Bad game id." });
       const scen = loadScenario();
       if (home === null || away === null || home === "" || away === "") delete scen[id];
       else {
