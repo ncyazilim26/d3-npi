@@ -6,7 +6,10 @@
   ],
   "champions": {
     "SUNYAC": "Plattsburgh St.",
-    "NJAC": "Rowan"
+    "NJAC": "Rowan",
+    "Landmark": "Scranton",
+    "Michigan Intercol. Ath. Assn.": "Hope",
+    "ODAC": "Lynchburg"
   },
   "eliminated": [
     "Babson"
