@@ -154,6 +154,8 @@ async function loadTeam() {
   if (!r) { $("teamCard").innerHTML = `<h2>${esc(selected)}</h2><p class="mute">Team not found in the NPI list.</p>`; return; }
   const dN = r.npi !== null && r.baseNpi !== null ? r.npi - r.baseNpi : 0;
   const dR = r.rank !== null && r.baseRank !== null ? r.baseRank - r.rank : 0;
+  teamGames = t.games;
+  for (const g of t.games) delete lastSent["x" + g.id]; // server state is now the truth
   const upcoming = t.games.filter((g) => g.state !== "final");
   const played = t.games.filter((g) => g.state === "final");
   const gameRow = (g, editable) => {
@@ -198,6 +200,8 @@ async function loadTeam() {
 
 // ---- Projections: every change runs through one queue, shows progress, and reports what moved. ----
 let chain = Promise.resolve();
+let teamGames = [];
+const lastSent = {};
 let busyCount = 0;
 const timers = {};
 const showResult = (html, kind) => { $("result").innerHTML = `<div class="notice ${kind}"><div class="body">${html}</div><button class="x" title="Dismiss" onclick="document.getElementById('result').innerHTML=''">✕</button></div>`; };
@@ -234,10 +238,15 @@ function summarize(before, after, game, home, away, removed, ms) {
 function applyChange(id, home, away) {
   // Queue it so quick successive edits never overlap.
   chain = chain.then(async () => {
-    const before = league, game = upcoming.find((u) => u.id === id), t0 = Date.now();
-    // Ignore a repeat of what is already saved (the page redraws its boxes after each calculation).
-    const cur = game && game.scenario;
-    if (game && ((home === null && !cur) || (cur && cur[0] === home && cur[1] === away))) return;
+    const before = league, t0 = Date.now();
+    const pid = id.startsWith("x") ? id.slice(1) : id;
+    const game = upcoming.find((u) => u.id === id) || teamGames.find((g) => String(g.id) === pid) || null;
+    // Ignore a repeat of what is already saved (the page redraws its boxes after each calculation, and typing can fire twice).
+    const cur = game && (game.scenario || game.override);
+    const sig = home === null ? "none" : home + "-" + away;
+    const curSig = cur ? cur[0] + "-" + cur[1] : (id in lastSent ? lastSent[id] : "none");
+    if (sig === curSig || (id in lastSent && lastSent[id] === sig)) return;
+    lastSent[id] = sig;
     busyCount++; document.body.classList.add("busy");
     showResult(`<span class="spin"></span><b>Calculating new rankings…</b> this can take several seconds. Please wait.`, "warn");
     try {
