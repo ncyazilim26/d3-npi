@@ -201,6 +201,7 @@ async function loadTeam() {
 // ---- Projections: every change runs through one queue, shows progress, and reports what moved. ----
 let chain = Promise.resolve();
 let teamGames = [];
+let lastBanner = null;
 const lastSent = {};
 let busyCount = 0;
 const timers = {};
@@ -219,6 +220,9 @@ function summarize(before, after, game, home, away, removed, ms) {
     const moved = Math.abs(d) >= 0.0005 || o.rank !== r.rank || o.bid !== r.bid || o.atLgRank !== r.atLgRank;
     lines.push(`<div class="line"><b>${esc(n)}</b>: NPI ${f3(o.npi)} → ${f3(r.npi)} <span class="${d > 0 ? "up" : d < 0 ? "down" : ""}">(${sign(d)})</span> · rank ${o.rank} → ${r.rank} ${arrow(o.rank - r.rank)} · ${esc(bidTxt(o))} → ${esc(bidTxt(r))}${moved ? "" : " <small>(no change)</small>"}</div>`);
   }
+  const sel = after.rows.find((x) => x.team === selected);
+  if (sel && sel.npi !== null && sel.baseNpi !== null && Math.abs(sel.npi - sel.baseNpi) >= 0.0005)
+    lines.push(`<div class="line"><b>${esc(selected)}</b> vs real results: ${f3(sel.baseNpi)} → ${f3(sel.npi)} <span class="${sel.npi > sel.baseNpi ? "up" : "down"}">(${sign(sel.npi - sel.baseNpi)})</span></div>`);
   let others = 0, ins = [], outs = [];
   for (const r of after.rows) {
     const o = b.get(r.team); if (!o) continue;
@@ -230,7 +234,7 @@ function summarize(before, after, game, home, away, removed, ms) {
   let extra = `<div class="line">${others} other team${others === 1 ? "" : "s"} changed rank.</div>`;
   if (ins.length) extra += `<div class="line up">Now in the 64-team field: ${ins.slice(0, 6).map(esc).join(", ")}</div>`;
   if (outs.length) extra += `<div class="line down">Now out of the field: ${outs.slice(0, 6).map(esc).join(", ")}</div>`;
-  const nothing = !lines.some((l) => !l.includes("(no change)")) && others === 0 && !ins.length && !outs.length;
+  const nothing = !lines.some((l) => !l.includes("(no change)") && !l.includes("vs real results")) && others === 0 && !ins.length && !outs.length;
   if (nothing) extra = `<div class="line">No team's NPI rank or bid changed.</div>`;
   return `<b>${head}</b> Rankings recalculated in ${(ms / 1000).toFixed(1)}s.${lines.join("")}${extra}`;
 }
@@ -252,7 +256,10 @@ function applyChange(id, home, away) {
     try {
       await api("/api/scenario", { id, home, away });
       await loadLeague();
-      showResult(summarize(before, league, game, home, away, home === null, Date.now() - t0), "ok");
+      const html = summarize(before, league, game, home, away, home === null, Date.now() - t0);
+      const sig2 = home === null ? "none" : home + "-" + away;
+      if (html.includes("No team's NPI rank or bid changed") && lastBanner && lastBanner.id === id && lastBanner.sig === sig2) showResult(lastBanner.html, "ok");
+      else { showResult(html, "ok"); lastBanner = { id, sig: sig2, html }; }
     } catch (e) {
       showResult("Could not calculate: " + esc(e.message), "err");
     } finally {
